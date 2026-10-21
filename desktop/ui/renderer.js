@@ -6,19 +6,39 @@ const state = {
   selected: new Set(),
   undo: null,
   busy: false,
+  tab: "plan",
+  dupes: null,
+  dupesLoading: false,
+  config: null,
+  configFile: null,
 };
 
 const el = {
   rootPath: document.getElementById("rootPath"),
   configBadge: document.getElementById("configBadge"),
+  tabs: document.getElementById("tabs"),
   empty: document.getElementById("empty"),
   content: document.getElementById("content"),
   cards: document.getElementById("cards"),
   list: document.getElementById("list"),
+  statusbar: document.getElementById("statusbar"),
   selectAll: document.getElementById("selectAll"),
   selection: document.getElementById("selection"),
   apply: document.getElementById("apply"),
   undo: document.getElementById("undo"),
+  dupeView: document.getElementById("dupesView"),
+  dupeMinSize: document.getElementById("dupeMinSize"),
+  dupeScan: document.getElementById("dupeScan"),
+  dupeSummary: document.getElementById("dupeSummary"),
+  dupeList: document.getElementById("dupeList"),
+  rulesView: document.getElementById("rulesView"),
+  includeHidden: document.getElementById("includeHidden"),
+  ignorePatterns: document.getElementById("ignorePatterns"),
+  rulesList: document.getElementById("rulesList"),
+  addRule: document.getElementById("addRule"),
+  rulesReload: document.getElementById("rulesReload"),
+  rulesSave: document.getElementById("rulesSave"),
+  rulesFile: document.getElementById("rulesFile"),
   modal: document.getElementById("modal"),
   modalTitle: document.getElementById("modalTitle"),
   modalBody: document.getElementById("modalBody"),
@@ -30,6 +50,29 @@ const el = {
 const boxes = new Map();
 let toastTimer = null;
 let modalResolve = null;
+
+/** Crea un nodo con propiedades y listeners sin usar innerHTML. */
+function h(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    if (key === "class") node.className = value;
+    else if (key === "text") node.textContent = value;
+    else if (key.startsWith("on") && typeof value === "function") {
+      node.addEventListener(key.slice(2).toLowerCase(), value);
+    } else {
+      node[key] = value;
+    }
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+function field(label, input) {
+  return h("label", { class: "field" }, h("span", { text: label }), input);
+}
 
 async function call(promise) {
   const response = await promise;
@@ -217,7 +260,6 @@ function renderList() {
   if (state.plan.items.length === 0) {
     const done = document.createElement("div");
     done.className = "empty";
-    done.innerHTML = "";
     const icon = document.createElement("div");
     icon.className = "empty-icon";
     icon.textContent = "✓";
@@ -241,10 +283,281 @@ function renderList() {
   updateGroupChecks();
 }
 
+function renderDupes() {
+  const report = state.dupes;
+  if (!report) return;
+
+  el.dupeSummary.textContent =
+    `${report.scanned} revisados · ${report.groups.length} grupo(s) · ` +
+    `${humanSize(report.wasted)} recuperables`;
+
+  if (report.groups.length === 0) {
+    el.dupeList.replaceChildren(
+      h("p", { class: "empty-note", text: "Sin duplicados por encima del tamaño mínimo." }),
+    );
+    return;
+  }
+
+  el.dupeList.replaceChildren(
+    ...report.groups.map((group) =>
+      h(
+        "section",
+        { class: "dupe-group" },
+        h(
+          "header",
+          {},
+          h("span", { class: "size", text: `${humanSize(group.size)} cada uno` }),
+          h("span", { class: "hash", text: group.hash.slice(0, 16) }),
+          h("span", { class: "muted", text: `${group.files.length} copias` }),
+        ),
+        h(
+          "ul",
+          { class: "files" },
+          ...group.files.map((file) => h("li", { text: file })),
+        ),
+      ),
+    ),
+  );
+}
+
+async function runDupes() {
+  if (!state.plan || state.dupesLoading) return null;
+
+  state.dupesLoading = true;
+  el.dupeSummary.textContent = "Analizando…";
+  el.dupeList.replaceChildren(h("p", { class: "empty-note", text: "Calculando hashes…" }));
+
+  try {
+    const minSize = Number(el.dupeMinSize.value);
+    const report = await call(api.dupes(state.root, minSize));
+    state.dupes = report;
+    renderDupes();
+    return { ok: true, groups: report.groups.length, scanned: report.scanned, wasted: report.wasted };
+  } catch (error) {
+    toast(error.message, "error");
+    el.dupeSummary.textContent = "";
+    el.dupeList.replaceChildren();
+    return { ok: false, error: error.message };
+  } finally {
+    state.dupesLoading = false;
+  }
+}
+
+function setMatchList(rule, key, raw) {
+  const list = raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase().replace(/^\./, ""))
+    .filter(Boolean);
+
+  if (list.length > 0) rule.match[key] = [...new Set(list)];
+  else delete rule.match[key];
+}
+
+function setMatchNumber(rule, key, raw) {
+  const text = String(raw).trim();
+  if (text === "") {
+    delete rule.match[key];
+    return;
+  }
+  const value = Number(text);
+  if (Number.isFinite(value) && value >= 0) rule.match[key] = value;
+}
+
+function moveRule(index, delta) {
+  const rules = state.config.rules;
+  const target = index + delta;
+  if (target < 0 || target >= rules.length) return;
+  [rules[index], rules[target]] = [rules[target], rules[index]];
+  renderRules();
+}
+
+function buildRuleCard(rule, index) {
+  const card = h("div", { class: `rule-card${rule.disabled ? " disabled" : ""}` });
+
+  const nameInput = h("input", {
+    class: "input rule-name",
+    value: rule.name,
+    placeholder: "Nombre de la regla",
+  });
+  nameInput.addEventListener("input", () => {
+    rule.name = nameInput.value;
+  });
+
+  const up = h("button", { class: "icon-btn", title: "Subir", text: "↑" });
+  up.disabled = index === 0;
+  up.addEventListener("click", () => moveRule(index, -1));
+
+  const down = h("button", { class: "icon-btn", title: "Bajar", text: "↓" });
+  down.disabled = index === state.config.rules.length - 1;
+  down.addEventListener("click", () => moveRule(index, 1));
+
+  const remove = h("button", { class: "icon-btn danger", title: "Eliminar", text: "✕" });
+  remove.addEventListener("click", () => {
+    state.config.rules.splice(index, 1);
+    renderRules();
+  });
+
+  const header = h(
+    "header",
+    {},
+    h("span", { class: "rule-index", text: String(index + 1) }),
+    nameInput,
+    up,
+    down,
+    remove,
+  );
+
+  const destInput = h("input", {
+    class: "input mono",
+    value: rule.dest,
+    placeholder: "Imagenes/{year}",
+  });
+  destInput.addEventListener("input", () => {
+    rule.dest = destInput.value;
+  });
+
+  const extInput = h("input", {
+    class: "input mono",
+    value: (rule.match.ext ?? []).join(", "),
+    placeholder: "jpg, png",
+  });
+  extInput.addEventListener("input", () => setMatchList(rule, "ext", extInput.value));
+
+  const globInput = h("input", {
+    class: "input mono",
+    value: (rule.match.glob ?? []).join(", "),
+    placeholder: "captura-*.png",
+  });
+  globInput.addEventListener("input", () => setMatchList(rule, "glob", globInput.value));
+
+  const daysInput = h("input", {
+    class: "input",
+    type: "number",
+    min: "0",
+    value: rule.match.olderThanDays ?? "",
+    placeholder: "—",
+  });
+  daysInput.addEventListener("input", () => setMatchNumber(rule, "olderThanDays", daysInput.value));
+
+  const sizeInput = h("input", {
+    class: "input",
+    type: "number",
+    min: "0",
+    value: rule.match.minSizeBytes ?? "",
+    placeholder: "—",
+  });
+  sizeInput.addEventListener("input", () => setMatchNumber(rule, "minSizeBytes", sizeInput.value));
+
+  const disabledBox = h("input", { type: "checkbox" });
+  disabledBox.checked = rule.disabled === true;
+  disabledBox.addEventListener("change", () => {
+    rule.disabled = disabledBox.checked;
+    card.classList.toggle("disabled", disabledBox.checked);
+  });
+
+  const grid = h(
+    "div",
+    { class: "rule-grid" },
+    field("Destino", destInput),
+    field("Extensiones", extInput),
+    field("Glob", globInput),
+    field("Más de (días)", daysInput),
+    field("Tamaño mínimo (bytes)", sizeInput),
+    h("label", { class: "check" }, disabledBox, h("span", { text: "Desactivada" })),
+  );
+
+  card.append(header, grid);
+  return card;
+}
+
+function renderRules() {
+  if (!state.config) return;
+
+  if (state.config.rules.length === 0) {
+    el.rulesList.replaceChildren(
+      h("p", { class: "empty-note", text: "No hay reglas: añade al menos una." }),
+    );
+    return;
+  }
+
+  el.rulesList.replaceChildren(
+    ...state.config.rules.map((rule, index) => buildRuleCard(rule, index)),
+  );
+}
+
+async function loadRules() {
+  if (!state.root) return null;
+  try {
+    const data = await call(api.configRead(state.root));
+    state.config = data.config;
+    state.configFile = data.configFile;
+    el.includeHidden.checked = data.config.includeHidden === true;
+    el.ignorePatterns.value = (data.config.ignore ?? []).join(", ");
+    renderRules();
+    el.rulesFile.textContent = data.configFile
+      ? `Archivo: ${data.configFile}`
+      : "Aún no hay orden.config.json: al guardar se creará en esta carpeta.";
+    return { ok: true, rules: data.config.rules.length };
+  } catch (error) {
+    toast(error.message, "error");
+    return { ok: false, error: error.message };
+  }
+}
+
+function splitPatterns(raw) {
+  return raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+async function saveRules() {
+  if (state.busy || !state.root || !state.config) return null;
+
+  const payload = {
+    ...state.config,
+    includeHidden: el.includeHidden.checked,
+    ignore: splitPatterns(el.ignorePatterns.value),
+    rules: state.config.rules,
+  };
+
+  setBusy(true);
+  try {
+    const result = await call(api.configWrite(state.root, payload));
+    toast("Reglas guardadas", "ok");
+    await openFolder(state.root);
+    return { ok: true, file: result.file };
+  } catch (error) {
+    toast(error.message, "error");
+    return { ok: false, error: error.message };
+  } finally {
+    setBusy(false);
+  }
+}
+
+function showTab(name) {
+  if (name !== "plan" && !state.plan) return;
+  state.tab = name;
+  render();
+
+  if (name === "dupes" && !state.dupes && !state.dupesLoading) void runDupes();
+  if (name === "rules" && !state.config) void loadRules();
+}
+
 function render() {
   const hasPlan = state.plan !== null;
-  el.empty.classList.toggle("hidden", hasPlan);
-  el.content.classList.toggle("hidden", !hasPlan);
+  const tab = state.tab;
+
+  el.tabs.classList.toggle("hidden", !hasPlan);
+  el.empty.classList.toggle("hidden", hasPlan || tab !== "plan");
+  el.content.classList.toggle("hidden", !hasPlan || tab !== "plan");
+  el.dupeView.classList.toggle("hidden", !hasPlan || tab !== "dupes");
+  el.rulesView.classList.toggle("hidden", !hasPlan || tab !== "rules");
+  el.statusbar.classList.toggle("hidden", !hasPlan || tab !== "plan");
+
+  for (const button of el.tabs.querySelectorAll(".tab")) {
+    button.classList.toggle("active", button.dataset.tab === tab);
+  }
 
   if (!hasPlan) {
     updateFooter();
@@ -259,8 +572,11 @@ function render() {
   el.configBadge.classList.remove("hidden");
   el.configBadge.classList.toggle("warn", !state.plan.configFile);
 
-  renderCards();
-  renderList();
+  if (tab === "plan") {
+    renderCards();
+    renderList();
+  }
+
   updateFooter();
 }
 
@@ -268,16 +584,30 @@ async function openFolder(root, options = {}) {
   setBusy(true);
   try {
     const plan = await call(api.scan(root));
+    const changed = state.root !== plan.root;
+
     state.root = plan.root;
     state.plan = plan;
     state.selected = new Set(plan.items.map((item) => item.source));
     state.undo = await call(api.undoStatus(plan.root));
+
+    if (changed) {
+      state.dupes = null;
+      state.config = null;
+      state.configFile = null;
+    }
+
     try {
       localStorage.setItem("orden:lastFolder", plan.root);
     } catch {
       // sin persistencia, no pasa nada
     }
+
     render();
+
+    if (state.tab === "rules") await loadRules();
+    else if (state.tab === "dupes" && !state.dupes) await runDupes();
+
     return { ok: true, items: plan.items.length };
   } catch (error) {
     if (!options.quiet) toast(error.message, "error");
@@ -285,11 +615,6 @@ async function openFolder(root, options = {}) {
   } finally {
     setBusy(false);
   }
-}
-
-async function reload() {
-  if (!state.root) return;
-  await openFolder(state.root);
 }
 
 async function applySelected(skipConfirm = false) {
@@ -360,6 +685,30 @@ document.getElementById("pick2").addEventListener("click", pickFolder);
 document.getElementById("apply").addEventListener("click", () => void applySelected(false));
 document.getElementById("undo").addEventListener("click", () => void doUndo(false));
 
+el.tabs.addEventListener("click", (event) => {
+  const button = event.target.closest(".tab");
+  if (button) showTab(button.dataset.tab);
+});
+
+el.dupeScan.addEventListener("click", () => {
+  state.dupes = null;
+  void runDupes();
+});
+
+el.dupeMinSize.addEventListener("change", () => {
+  state.dupes = null;
+  if (state.tab === "dupes") void runDupes();
+});
+
+el.addRule.addEventListener("click", () => {
+  if (!state.config) return;
+  state.config.rules.push({ name: "Nueva regla", dest: "Otros", match: { ext: [] } });
+  renderRules();
+});
+
+el.rulesReload.addEventListener("click", () => void loadRules());
+el.rulesSave.addEventListener("click", () => void saveRules());
+
 el.selectAll.addEventListener("change", () => {
   if (!state.plan) return;
   if (el.selectAll.checked) {
@@ -383,27 +732,42 @@ document.addEventListener("keydown", (event) => {
 
 const params = new URLSearchParams(location.search);
 const initialFolder = params.get("folder");
+const initialTab = params.get("tab");
 
 async function bootstrap() {
+  let opened = null;
+
   if (initialFolder) {
-    return openFolder(initialFolder);
-  }
-  if (params.has("smoke")) return;
-
-  let last = null;
-  try {
-    last = localStorage.getItem("orden:lastFolder");
-  } catch {
-    // localStorage no disponible
-  }
-  if (!last) return;
-
-  const result = await openFolder(last, { quiet: true });
-  if (!result?.ok) {
+    opened = await openFolder(initialFolder);
+  } else if (!params.has("smoke")) {
+    let last = null;
     try {
-      localStorage.removeItem("orden:lastFolder");
+      last = localStorage.getItem("orden:lastFolder");
     } catch {
-      // nada que limpiar
+      // localStorage no disponible
+    }
+
+    if (last) {
+      opened = await openFolder(last, { quiet: true });
+      if (!opened?.ok) {
+        try {
+          localStorage.removeItem("orden:lastFolder");
+        } catch {
+          // nada que limpiar
+        }
+      }
+    }
+  }
+
+  if (opened?.ok && initialTab) {
+    if (initialTab === "dupes") {
+      state.tab = "dupes";
+      render();
+      await runDupes();
+    } else if (initialTab === "rules") {
+      state.tab = "rules";
+      render();
+      await loadRules();
     }
   }
 }
@@ -420,6 +784,7 @@ if (params.has("smoke")) {
     open: (root) => openFolder(root),
     state: () => ({
       root: state.root,
+      tab: state.tab,
       groups: el.list.querySelectorAll(".group").length,
       rows: el.list.querySelectorAll(".row").length,
       items: state.plan?.items.length ?? 0,
@@ -427,8 +792,15 @@ if (params.has("smoke")) {
       undoAvailable: Boolean(state.undo),
       badge: el.configBadge.textContent,
       undoDisabled: el.undo.disabled,
+      dupeGroups: state.dupes?.groups.length ?? 0,
+      ruleCards: el.rulesList.querySelectorAll(".rule-card").length,
+      configFile: state.configFile,
     }),
     apply: () => applySelected(true),
     undo: () => doUndo(true),
+    tab: (name) => showTab(name),
+    dupes: () => runDupes(),
+    rules: () => loadRules(),
+    saveRules: () => saveRules(),
   };
 }

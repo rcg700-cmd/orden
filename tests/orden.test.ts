@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { applyPlan } from "../src/apply.ts";
-import { CONFIG_FILENAME, resolveConfigContext, type Config } from "../src/config.ts";
+import { CONFIG_FILENAME, resolveConfigContext, saveConfig, type Config } from "../src/config.ts";
 import { resolveDest } from "../src/dest.ts";
 import { findDuplicates } from "../src/dupes.ts";
 import { UserError } from "../src/errors.ts";
@@ -207,6 +207,33 @@ test("contexto: se usa el config de la carpeta indicada, o reglas por defecto", 
   } finally {
     await rm(withConfig, { recursive: true, force: true });
     await rm(withoutConfig, { recursive: true, force: true });
+  }
+});
+
+test("saveConfig valida y deja un config recargable", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "orden-save-"));
+  try {
+    const file = await saveConfig(root, {
+      root: ".",
+      includeHidden: true,
+      ignore: ["*.tmp"],
+      rules: [{ name: "Solo logs", dest: "Logs", match: { ext: ["log"] } }],
+    });
+
+    assert.equal(file, path.join(root, CONFIG_FILENAME));
+    const context = await resolveConfigContext(root);
+    assert.equal(context.config.includeHidden, true);
+    assert.deepEqual(context.config.ignore, ["*.tmp"]);
+    assert.equal(context.config.rules[0]!.name, "Solo logs");
+
+    await assert.rejects(() =>
+      saveConfig(root, {
+        root: ".",
+        rules: [{ name: "Malo", dest: "../fuera", match: { ext: ["log"] } }],
+      }),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

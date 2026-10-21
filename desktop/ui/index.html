@@ -18,6 +18,12 @@
         <button class="btn ghost" id="pick">Elegir carpeta…</button>
       </header>
 
+      <nav class="tabs hidden" id="tabs">
+        <button class="tab active" data-tab="plan">Plan</button>
+        <button class="tab" data-tab="dupes">Duplicados</button>
+        <button class="tab" data-tab="rules">Reglas</button>
+      </nav>
+
       <main class="main">
         <section class="empty" id="empty">
           <div class="empty-icon">▤</div>
@@ -30,9 +36,55 @@
           <div class="cards" id="cards"></div>
           <div id="list"></div>
         </section>
+
+        <section class="hidden view" id="dupesView">
+          <div class="view-head">
+            <h2>Duplicados</h2>
+            <p>Mismo tamaño y mismo SHA-256. Solo se informa: aquí no se borra nada.</p>
+          </div>
+          <div class="view-controls">
+            <label class="field">
+              <span>Tamaño mínimo</span>
+              <select id="dupeMinSize">
+                <option value="0">Cualquiera</option>
+                <option value="102400">100 KB</option>
+                <option value="1048576" selected>1 MB</option>
+                <option value="10485760">10 MB</option>
+              </select>
+            </label>
+            <button class="btn primary" id="dupeScan">Buscar duplicados</button>
+            <span class="muted" id="dupeSummary"></span>
+          </div>
+          <div id="dupeList"></div>
+        </section>
+
+        <section class="hidden view" id="rulesView">
+          <div class="view-head">
+            <h2>Reglas</h2>
+            <p>Gana la primera regla que coincida. Se guardan en <code>orden.config.json</code>.</p>
+          </div>
+          <div class="view-controls">
+            <label class="check">
+              <input type="checkbox" id="includeHidden" />
+              <span>Incluir archivos ocultos</span>
+            </label>
+            <label class="field grow">
+              <span>Ignorar patrones</span>
+              <input id="ignorePatterns" class="input mono" placeholder="node_modules/**, *.tmp" />
+            </label>
+          </div>
+          <div id="rulesList"></div>
+          <div class="rules-actions">
+            <button class="btn ghost" id="addRule">Añadir regla</button>
+            <span class="spacer"></span>
+            <button class="btn ghost" id="rulesReload">Descartar cambios</button>
+            <button class="btn primary" id="rulesSave">Guardar reglas</button>
+          </div>
+          <p class="hint" id="rulesFile"></p>
+        </section>
       </main>
 
-      <footer class="statusbar">
+      <footer class="statusbar" id="statusbar">
         <label class="check">
           <input type="checkbox" id="selectAll" />
           <span>Seleccionar todo</span>

@@ -203,6 +203,14 @@ export function resolveRoot(loaded: LoadedConfig, override?: string): string {
   return path.resolve(loaded.dir, loaded.config.root);
 }
 
+/** Valida y escribe `orden.config.json` en la carpeta indicada. */
+export async function saveConfig(rootDir: string, raw: unknown): Promise<string> {
+  const file = path.join(rootDir, CONFIG_FILENAME);
+  const config = validateConfig(raw);
+  await fs.writeFile(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+  return file;
+}
+
 export type Context = {
   config: Config;
   configFile: string | null;

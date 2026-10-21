@@ -5,7 +5,8 @@ import path from "node:path";
 import process from "node:process";
 
 import { applyPlan } from "../src/apply.ts";
-import { resolveConfigContext, type Context as ConfigContext } from "../src/config.ts";
+import { resolveConfigContext, saveConfig, type Context as ConfigContext } from "../src/config.ts";
+import { findDuplicates } from "../src/dupes.ts";
 import { UserError } from "../src/errors.ts";
 import { latestJournal, listJournals } from "../src/journal.ts";
 import { buildPlan } from "../src/scan.ts";
@@ -24,6 +25,7 @@ const SMOKE_ROOT = process.env.ORDEN_SMOKE_ROOT ?? argValue("smoke-root");
 const SMOKE_SHOT = process.env.ORDEN_SMOKE_SHOT ?? argValue("smoke-shot");
 const SMOKE_LOG = process.env.ORDEN_SMOKE_LOG ?? argValue("smoke-log");
 const INITIAL_FOLDER = argValue("folder");
+const INITIAL_TAB = argValue("tab");
 const CAPTURE_ONLY = SMOKE_ROOT === undefined && SMOKE_SHOT !== undefined;
 
 /** En Windows el proceso GUI no siempre tiene stdout válido: con SMOKE_LOG se escribe solo a archivo. */
@@ -154,6 +156,35 @@ handle("orden:undo", async (rawRoot) => {
   return { restored: result.restored, missing: result.missing, failed: result.failed, id: entry.journal.id };
 });
 
+handle("orden:dupes", async (rawRoot, rawMinSize) => {
+  const context = await resolveContext(assertString(rawRoot, "root"));
+  const minSizeBytes =
+    typeof rawMinSize === "number" && Number.isFinite(rawMinSize) && rawMinSize >= 0
+      ? rawMinSize
+      : 1024 * 1024;
+
+  return findDuplicates(context.root, {
+    ignore: context.config.ignore,
+    includeHidden: context.config.includeHidden,
+    minSizeBytes,
+  });
+});
+
+handle("orden:config-read", async (rawRoot) => {
+  const context = await resolveContext(assertString(rawRoot, "root"));
+  return { config: context.config, configFile: context.configFile };
+});
+
+handle("orden:config-write", async (rawRoot, rawConfig) => {
+  const context = await resolveContext(assertString(rawRoot, "root"));
+  if (typeof rawConfig !== "object" || rawConfig === null || Array.isArray(rawConfig)) {
+    throw new UserError("configuración inválida");
+  }
+  const config = { ...(rawConfig as Record<string, unknown>), root: context.config.root };
+  const file = await saveConfig(context.root, config);
+  return { file };
+});
+
 handle("orden:journals", async (rawRoot) => {
   const root = path.resolve(assertString(rawRoot, "root"));
   const entries = await listJournals(root);
@@ -190,6 +221,7 @@ function createWindow(): BrowserWindow {
   const query = new URLSearchParams();
   if (SMOKE_ROOT !== undefined) query.set("smoke", "1");
   if (INITIAL_FOLDER) query.set("folder", INITIAL_FOLDER);
+  if (INITIAL_TAB) query.set("tab", INITIAL_TAB);
   const search = query.size > 0 ? `?${query.toString()}` : undefined;
   void win.loadFile(UI_FILE, search ? { search } : {});
 
@@ -225,6 +257,11 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
   try {
     const run = (script: string): Promise<unknown> => win.webContents.executeJavaScript(script);
     const root = JSON.stringify(SMOKE_ROOT);
+    const configPath = path.join(SMOKE_ROOT!, "orden.config.json");
+    const hadConfig = await fs
+      .stat(configPath)
+      .then(() => true)
+      .catch(() => false);
 
     log("SMOKE_OPEN");
     await run(`window.__ordenSmoke.open(${root})`);
@@ -240,12 +277,42 @@ async function runSmoke(win: BrowserWindow): Promise<void> {
     const afterUndo = await run("window.__ordenSmoke.state()");
     log(`SMOKE_UNDONE ${JSON.stringify(undone)}`);
 
-    const report = { scan, applied, afterApply, undone, afterUndo };
+    // Editor de reglas: rechaza destinos fuera de la carpeta y guarda los válidos.
+    const badConfig = {
+      root: ".",
+      includeHidden: false,
+      ignore: [],
+      rules: [{ name: "Malo", dest: "../fuera", match: { ext: ["log"] } }],
+    };
+    const invalid = await run(
+      `window.orden.configWrite(${root}, ${JSON.stringify(badConfig)})`,
+    );
+
+    const goodConfig = {
+      root: ".",
+      includeHidden: false,
+      ignore: ["*.tmp"],
+      rules: [{ name: "Solo JPG", dest: "Fotos", match: { ext: ["jpg"] } }],
+    };
+    const configWrite = await run(
+      `window.orden.configWrite(${root}, ${JSON.stringify(goodConfig)})`,
+    );
+    await run(`window.__ordenSmoke.open(${root})`);
+    const afterConfig = await run("window.__ordenSmoke.state()");
+    log(`SMOKE_CONFIG ${JSON.stringify({ invalid, configWrite, afterConfig })}`);
+
+    if (!hadConfig) await fs.rm(configPath, { force: true });
+
+    const report = { scan, applied, afterApply, undone, afterUndo, invalid, configWrite, afterConfig };
     log(`SMOKE_RESULT ${JSON.stringify(report)}`);
 
     const ok =
       (applied as { ok?: boolean; moves?: number } | null)?.ok === true &&
-      (undone as { ok?: boolean; restored?: number } | null)?.ok === true;
+      (undone as { ok?: boolean; restored?: number } | null)?.ok === true &&
+      (invalid as { ok?: boolean } | null)?.ok === false &&
+      (configWrite as { ok?: boolean } | null)?.ok === true &&
+      (afterConfig as { items?: number; badge?: string } | null)?.items === 2 &&
+      (afterConfig as { badge?: string } | null)?.badge === "orden.config.json";
     app.exit(ok ? 0 : 1);
   } catch (error) {
     log(`SMOKE_ERROR ${(error as Error).stack ?? String(error)}`);

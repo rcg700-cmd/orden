@@ -35,7 +35,28 @@ Flujo:
 4. **Aplicar N** → confirmación → mueve y guarda el diario.
 5. **Deshacer** → restaura la última acción completa.
 
+Tres pestañas:
+
+- **Plan**: lo anterior.
+- **Duplicados**: mismo tamaño + SHA-256, con tamaño mínimo ajustable. Solo informa: no borra nada.
+- **Reglas**: editor visual de `orden.config.json` (nombre, destino, extensiones, glob, antigüedad, tamaño mínimo, activar/desactivar y orden). Se valida antes de guardar y se reescanea al terminar.
+
 Recuerda la última carpeta abierta. La ventana es Electron (sin compiladores). La UI es HTML/CSS/JS plano; el proceso principal reutiliza el mismo motor que la CLI.
+
+## Instalador (.exe)
+
+```powershell
+npm run dist        # instalador NSIS + portable en release/
+npm run dist:dir    # solo la carpeta desempaquetada (más rápido para probar)
+```
+
+Salidas típicas:
+
+- `release/orden Setup 0.1.0.exe` — instalador con acceso directo y desinstalador.
+- `release/orden 0.1.0.exe` — portable, un solo archivo, sin instalar.
+- `release/win-unpacked/orden.exe` — ejecutable suelto para depurar.
+
+El icono vive en `build/icon.png`. La app empaquetada incluye solo `dist/`, `desktop/preload.cjs`, `desktop/ui/` y `package.json`; el motor va dentro del bundle.
 
 ## CLI
 
@@ -107,6 +128,7 @@ src/            motor: config, reglas, scan, apply, undo, dupes
 bin/orden.mjs   entrada CLI
 desktop/        main (Electron), preload, UI
 scripts/        build del escritorio (esbuild)
+build/          icono para el instalador
 tests/          pruebas del motor (node:test)
 ```
 
@@ -131,4 +153,4 @@ Abre la carpeta, aplica todo, deshace, y escribe el resultado en el log. Útil p
 - No vigila carpetas en segundo plano.
 - `dupes` solo informa; no borra ni enlaza duplicados.
 - Solo mueve dentro de la carpeta raíz elegida.
-- Empaquetado como `.exe` instalable pendiente (electron-builder).
+- El instalador no está firmado: Windows SmartScreen puede pedir confirmación la primera vez.

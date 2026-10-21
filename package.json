@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Ordena archivos con plan previo, interfaz de escritorio y undo",
+  "author": "orden",
   "type": "module",
   "main": "dist/main.js",
   "engines": {
@@ -15,13 +16,55 @@
     "start": "node src/cli.ts",
     "desktop": "npm run build:desktop && electron .",
     "build:desktop": "node scripts/build-desktop.mjs",
+    "dist": "npm run build:desktop && electron-builder --win --x64",
+    "dist:dir": "npm run build:desktop && electron-builder --win --x64 --dir",
     "test": "node --test --test-reporter=spec tests/orden.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test"
   },
+  "build": {
+    "appId": "com.orden.app",
+    "productName": "orden",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/preload.cjs",
+      "desktop/ui/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "orden"
+    }
+  },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "electron": "^44.9.2",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.0"
   }
