@@ -89,7 +89,7 @@ Códigos de salida: `0` correcto · `1` algún archivo falló · `2` error de us
 - Tokens en `dest`: `{year}`, `{month}`, `{ext}` (según la fecha del archivo).
 - `dest` debe ser relativo y quedarse dentro de la carpeta: se rechaza `..`, rutas absolutas y unidades de Windows.
 
-Si no hay `orden.config.json`, la app usa las reglas por defecto (imágenes, documentos, comprimidos, instaladores, vídeo, audio, código).
+Si la carpeta no tiene `orden.config.json` (y no pasas `--config`), tanto la CLI como la app usan las reglas por defecto (imágenes, documentos, comprimidos, instaladores, vídeo, audio, código).
 
 ## Seguridad
 

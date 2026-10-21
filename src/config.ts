@@ -202,3 +202,42 @@ export function resolveRoot(loaded: LoadedConfig, override?: string): string {
   if (override) return path.resolve(process.cwd(), override);
   return path.resolve(loaded.dir, loaded.config.root);
 }
+
+export type Context = {
+  config: Config;
+  configFile: string | null;
+  root: string;
+};
+
+/**
+ * Resuelve configuración y raíz en un solo paso:
+ * - `--config` explícito: manda ese archivo; la raíz es `--root` o la del config.
+ * - Carpeta objetivo: se usa su `orden.config.json` si existe; si no, reglas por defecto.
+ * - Sin carpeta: exige `orden.config.json` en el directorio actual.
+ */
+export async function resolveConfigContext(
+  rootOverride?: string,
+  explicitConfig?: string,
+): Promise<Context> {
+  if (explicitConfig) {
+    const loaded = await loadConfig(explicitConfig);
+    return {
+      config: loaded.config,
+      configFile: loaded.file,
+      root: resolveRoot(loaded, rootOverride),
+    };
+  }
+
+  if (rootOverride) {
+    const root = path.resolve(process.cwd(), rootOverride);
+    const file = path.join(root, CONFIG_FILENAME);
+    if (await pathExists(file)) {
+      const loaded = await loadConfig(file);
+      return { config: loaded.config, configFile: file, root };
+    }
+    return { config: defaultConfig(), configFile: null, root };
+  }
+
+  const loaded = await loadConfig();
+  return { config: loaded.config, configFile: loaded.file, root: resolveRoot(loaded) };
+}

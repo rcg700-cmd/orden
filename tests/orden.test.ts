@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { applyPlan } from "../src/apply.ts";
-import type { Config } from "../src/config.ts";
+import { CONFIG_FILENAME, resolveConfigContext, type Config } from "../src/config.ts";
 import { resolveDest } from "../src/dest.ts";
 import { findDuplicates } from "../src/dupes.ts";
 import { UserError } from "../src/errors.ts";
@@ -176,6 +176,37 @@ test("apply nunca sobrescribe: usa sufijo (1)", async () => {
     assert.equal(await readFile(path.join(targetDir, "a (1).jpg"), "utf8"), "aaa");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("contexto: se usa el config de la carpeta indicada, o reglas por defecto", async () => {
+  const withConfig = await makeFixture();
+  const withoutConfig = await mkdtemp(path.join(tmpdir(), "orden-ctx-"));
+  try {
+    await writeFile(
+      path.join(withConfig, CONFIG_FILENAME),
+      JSON.stringify({
+        root: ".",
+        rules: [{ name: "Solo logs", dest: "Logs", match: { ext: ["log"] } }],
+      }),
+    );
+
+    const defaults = await resolveConfigContext(withoutConfig);
+    assert.equal(defaults.root, path.resolve(withoutConfig));
+    assert.equal(defaults.configFile, null);
+    assert.ok(defaults.config.rules.length > 1);
+
+    const custom = await resolveConfigContext(withConfig);
+    assert.equal(custom.root, path.resolve(withConfig));
+    assert.equal(custom.config.rules[0]!.name, "Solo logs");
+    assert.equal(custom.configFile, path.join(withConfig, CONFIG_FILENAME));
+
+    const explicit = await resolveConfigContext(withoutConfig, path.join(withConfig, CONFIG_FILENAME));
+    assert.equal(explicit.root, path.resolve(withoutConfig));
+    assert.equal(explicit.config.rules[0]!.name, "Solo logs");
+  } finally {
+    await rm(withConfig, { recursive: true, force: true });
+    await rm(withoutConfig, { recursive: true, force: true });
   }
 });
 

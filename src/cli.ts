@@ -8,9 +8,8 @@ import { applyPlan } from "./apply.ts";
 import {
   CONFIG_FILENAME,
   defaultConfig,
-  loadConfig,
-  resolveRoot,
-  type LoadedConfig,
+  resolveConfigContext,
+  type Context,
 } from "./config.ts";
 import { findDuplicates } from "./dupes.ts";
 import { ConfigError, UserError } from "./errors.ts";
@@ -41,7 +40,7 @@ ${bold("Uso")}
   orden dupes [ruta] [--min-size 1mb]  Busca duplicados por SHA-256
 
 ${bold("Opciones")}
-  --config <ruta>   Archivo de configuración (por defecto: ./${CONFIG_FILENAME})
+  --config <ruta>   Archivo de configuración (por defecto: el de la carpeta)
   --root <ruta>     Directorio a ordenar (por defecto: el del config)
   --json            Salida JSON (scan, dupes)
   --verbose         Muestra todos los elementos, sin recortar
@@ -58,6 +57,7 @@ ${bold("Ejemplos")}
   orden apply ~/Downloads
   orden undo --list
 
+${dim("Usa el orden.config.json de la carpeta indicada; si no existe, reglas por defecto.")}
 ${dim("Nada se mueve sin confirmación. Todo apply se puede deshacer con undo.")}
 `;
 
@@ -136,15 +136,17 @@ function numberFlag(flags: Flags, name: string, fallback: number): number {
   return value;
 }
 
-async function openContext(flags: Flags): Promise<{ loaded: LoadedConfig; rootAbs: string }> {
-  const loaded = await loadConfig(stringFlag(flags, "config"));
-  const rootAbs = resolveRoot(loaded, stringFlag(flags, "root"));
+async function openContext(flags: Flags): Promise<Context> {
+  const context = await resolveConfigContext(
+    stringFlag(flags, "root"),
+    stringFlag(flags, "config"),
+  );
 
-  if (!(await pathExists(rootAbs))) throw new UserError(`no existe el directorio: ${rootAbs}`);
-  const stats = await fs.stat(rootAbs);
-  if (!stats.isDirectory()) throw new UserError(`no es un directorio: ${rootAbs}`);
+  if (!(await pathExists(context.root))) throw new UserError(`no existe el directorio: ${context.root}`);
+  const stats = await fs.stat(context.root);
+  if (!stats.isDirectory()) throw new UserError(`no es un directorio: ${context.root}`);
 
-  return { loaded, rootAbs };
+  return context;
 }
 
 async function confirm(question: string): Promise<boolean> {
@@ -249,8 +251,8 @@ async function commandScan(argv: string[]): Promise<number> {
   });
 
   if (positional.length > 1) throw new UserError("scan acepta como máximo una ruta");
-  const { loaded, rootAbs } = await openContext({ ...flags, root: positional[0] ?? stringFlag(flags, "root") });
-  const plan = await buildPlan(loaded.config, rootAbs);
+  const { config, root } = await openContext({ ...flags, root: positional[0] ?? stringFlag(flags, "root") });
+  const plan = await buildPlan(config, root);
 
   if (flags.json === true) {
     console.log(
@@ -294,8 +296,8 @@ async function commandApply(argv: string[]): Promise<number> {
   });
 
   if (positional.length > 1) throw new UserError("apply acepta como máximo una ruta");
-  const { loaded, rootAbs } = await openContext({ ...flags, root: positional[0] ?? stringFlag(flags, "root") });
-  const plan = await buildPlan(loaded.config, rootAbs);
+  const { config, root } = await openContext({ ...flags, root: positional[0] ?? stringFlag(flags, "root") });
+  const plan = await buildPlan(config, root);
 
   renderPlan(plan, { verbose: flags.verbose === true, limit: numberFlag(flags, "limit", 25) });
 
@@ -397,30 +399,30 @@ async function commandDupes(argv: string[]): Promise<number> {
 
   if (positional.length > 1) throw new UserError("dupes acepta como máximo una ruta");
 
-  let loaded: LoadedConfig | undefined;
+  const target = positional[0] ?? stringFlag(flags, "root");
+  let context: Context;
   try {
-    loaded = await loadConfig(stringFlag(flags, "config"));
+    context = await resolveConfigContext(target, stringFlag(flags, "config"));
   } catch (error) {
-    if (error instanceof ConfigError && stringFlag(flags, "config") === undefined) loaded = undefined;
-    else throw error;
+    // dupes solo necesita los patrones de ignorado: sin config, sigue con los de por defecto.
+    if (error instanceof ConfigError && stringFlag(flags, "config") === undefined && target === undefined) {
+      context = { config: defaultConfig(), configFile: null, root: process.cwd() };
+    } else {
+      throw error;
+    }
   }
 
-  const rootAbs = positional[0]
-    ? path.resolve(process.cwd(), positional[0])
-    : loaded
-      ? resolveRoot(loaded, stringFlag(flags, "root"))
-      : path.resolve(process.cwd(), stringFlag(flags, "root") ?? ".");
+  const rootAbs = context.root;
 
   if (!(await pathExists(rootAbs))) throw new UserError(`no existe el directorio: ${rootAbs}`);
 
-  const defaults = defaultConfig();
   const minSizeBytes = stringFlag(flags, "min-size")
     ? parseSize(stringFlag(flags, "min-size")!)
     : 1024 * 1024;
 
   const report = await findDuplicates(rootAbs, {
-    ignore: loaded?.config.ignore ?? defaults.ignore,
-    includeHidden: loaded?.config.includeHidden ?? false,
+    ignore: context.config.ignore,
+    includeHidden: context.config.includeHidden,
     minSizeBytes,
   });
 

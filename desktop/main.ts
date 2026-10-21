@@ -5,9 +5,8 @@ import path from "node:path";
 import process from "node:process";
 
 import { applyPlan } from "../src/apply.ts";
-import { CONFIG_FILENAME, defaultConfig, loadConfig, type Config } from "../src/config.ts";
+import { resolveConfigContext, type Context as ConfigContext } from "../src/config.ts";
 import { UserError } from "../src/errors.ts";
-import { pathExists } from "../src/fsutil.ts";
 import { latestJournal, listJournals } from "../src/journal.ts";
 import { buildPlan } from "../src/scan.ts";
 import { undoJournal } from "../src/undo.ts";
@@ -58,23 +57,11 @@ process.on("unhandledRejection", (reason) => {
   log(`UNHANDLED ${String(reason)}`);
 });
 
-type Context = {
-  root: string;
-  config: Config;
-  configFile: string | null;
-};
-
-async function resolveContext(root: string): Promise<Context> {
+async function resolveContext(root: string): Promise<ConfigContext> {
   const resolved = path.resolve(root);
   const stats = await fs.stat(resolved).catch(() => undefined);
   if (!stats?.isDirectory()) throw new UserError(`no es una carpeta: ${resolved}`);
-
-  const configFile = path.join(resolved, CONFIG_FILENAME);
-  if (await pathExists(configFile)) {
-    const loaded = await loadConfig(configFile);
-    return { root: resolved, config: loaded.config, configFile };
-  }
-  return { root: resolved, config: defaultConfig(), configFile: null };
+  return resolveConfigContext(resolved);
 }
 
 function assertString(value: unknown, name: string): string {
