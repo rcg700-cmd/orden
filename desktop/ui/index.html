@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self' data:"
+    />
+    <title>orden</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand"><span class="dot"></span>orden</div>
+        <div class="path" id="rootPath">Ninguna carpeta seleccionada</div>
+        <div class="badge hidden" id="configBadge"></div>
+        <button class="btn ghost" id="pick">Elegir carpeta…</button>
+      </header>
+
+      <main class="main">
+        <section class="empty" id="empty">
+          <div class="empty-icon">▤</div>
+          <h1>Ordena sin miedo</h1>
+          <p>Elige una carpeta y verás el plan completo antes de mover nada.</p>
+          <button class="btn primary" id="pick2">Elegir carpeta…</button>
+        </section>
+
+        <section class="hidden" id="content">
+          <div class="cards" id="cards"></div>
+          <div id="list"></div>
+        </section>
+      </main>
+
+      <footer class="statusbar">
+        <label class="check">
+          <input type="checkbox" id="selectAll" />
+          <span>Seleccionar todo</span>
+        </label>
+        <span class="muted" id="selection">0 seleccionados</span>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="undo" disabled>Deshacer</button>
+        <button class="btn primary" id="apply" disabled>Aplicar</button>
+      </footer>
+    </div>
+
+    <div class="modal hidden" id="modal">
+      <div class="modal-box" role="dialog" aria-modal="true">
+        <h2 id="modalTitle"></h2>
+        <p id="modalBody"></p>
+        <div class="modal-actions">
+          <button class="btn ghost" id="modalCancel">Cancelar</button>
+          <button class="btn primary" id="modalOk">Confirmar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast hidden" id="toast"></div>
+
+    <script type="module" src="renderer.js"></script>
+  </body>
+</html>

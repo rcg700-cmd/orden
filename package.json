@@ -1,0 +1,28 @@
+{
+  "name": "orden",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ordena archivos con plan previo, interfaz de escritorio y undo",
+  "type": "module",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "orden": "./bin/orden.mjs"
+  },
+  "scripts": {
+    "start": "node src/cli.ts",
+    "desktop": "npm run build:desktop && electron .",
+    "build:desktop": "node scripts/build-desktop.mjs",
+    "test": "node --test --test-reporter=spec tests/orden.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^44.9.2",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.0"
+  }
+}
