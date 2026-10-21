@@ -24,6 +24,8 @@ function argValue(name: string): string | undefined {
 const SMOKE_ROOT = process.env.ORDEN_SMOKE_ROOT ?? argValue("smoke-root");
 const SMOKE_SHOT = process.env.ORDEN_SMOKE_SHOT ?? argValue("smoke-shot");
 const SMOKE_LOG = process.env.ORDEN_SMOKE_LOG ?? argValue("smoke-log");
+const INITIAL_FOLDER = argValue("folder");
+const CAPTURE_ONLY = SMOKE_ROOT === undefined && SMOKE_SHOT !== undefined;
 
 /** En Windows el proceso GUI no siempre tiene stdout válido: con SMOKE_LOG se escribe solo a archivo. */
 function log(message: string): void {
@@ -185,23 +187,36 @@ function createWindow(): BrowserWindow {
     backgroundColor: "#0f1115",
     title: "orden",
     autoHideMenuBar: true,
-    show: SMOKE_ROOT === undefined,
+    show: SMOKE_ROOT === undefined && !CAPTURE_ONLY,
     webPreferences: {
       preload: PRELOAD_FILE,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      offscreen: SMOKE_ROOT !== undefined,
+      offscreen: SMOKE_ROOT !== undefined || CAPTURE_ONLY,
     },
   });
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
 
-  const query = SMOKE_ROOT === undefined ? "" : "?smoke=1";
-  void win.loadFile(UI_FILE, { search: query });
+  const query = new URLSearchParams();
+  if (SMOKE_ROOT !== undefined) query.set("smoke", "1");
+  if (INITIAL_FOLDER) query.set("folder", INITIAL_FOLDER);
+  const search = query.size > 0 ? `?${query.toString()}` : undefined;
+  void win.loadFile(UI_FILE, search ? { search } : {});
 
   return win;
+}
+
+async function waitForReady(win: BrowserWindow, timeoutMs = 8000): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const ready = (await win.webContents.executeJavaScript("Boolean(window.__ordenReady)")) as boolean;
+    if (ready) return true;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return false;
 }
 
 async function capture(win: BrowserWindow, suffix: string): Promise<void> {
@@ -269,6 +284,22 @@ void app.whenReady().then(() => {
     win.webContents.once("did-finish-load", () => {
       log("SMOKE_LOADED");
       void runSmoke(win);
+    });
+  }
+
+  if (CAPTURE_ONLY) {
+    win.webContents.on("console-message", (_event, _level, message) => {
+      log(`RENDERER ${message}`);
+    });
+    win.webContents.once("did-finish-load", () => {
+      void (async () => {
+        log(`CAPTURE_ONLY_LOADED url=${win.webContents.getURL()}`);
+        const ready = await waitForReady(win);
+        log(`CAPTURE_ONLY_READY ${ready}`);
+        await capture(win, "start");
+        log("CAPTURE_ONLY_DONE");
+        app.exit(0);
+      })();
     });
   }
 

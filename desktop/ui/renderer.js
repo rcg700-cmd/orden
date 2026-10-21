@@ -264,7 +264,7 @@ function render() {
   updateFooter();
 }
 
-async function openFolder(root) {
+async function openFolder(root, options = {}) {
   setBusy(true);
   try {
     const plan = await call(api.scan(root));
@@ -272,10 +272,15 @@ async function openFolder(root) {
     state.plan = plan;
     state.selected = new Set(plan.items.map((item) => item.source));
     state.undo = await call(api.undoStatus(plan.root));
+    try {
+      localStorage.setItem("orden:lastFolder", plan.root);
+    } catch {
+      // sin persistencia, no pasa nada
+    }
     render();
     return { ok: true, items: plan.items.length };
   } catch (error) {
-    toast(error.message, "error");
+    if (!options.quiet) toast(error.message, "error");
     return { ok: false, error: error.message };
   } finally {
     setBusy(false);
@@ -376,9 +381,41 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && modalResolve) closeModal(false);
 });
 
-render();
+const params = new URLSearchParams(location.search);
+const initialFolder = params.get("folder");
 
-if (new URLSearchParams(location.search).has("smoke")) {
+async function bootstrap() {
+  if (initialFolder) {
+    return openFolder(initialFolder);
+  }
+  if (params.has("smoke")) return;
+
+  let last = null;
+  try {
+    last = localStorage.getItem("orden:lastFolder");
+  } catch {
+    // localStorage no disponible
+  }
+  if (!last) return;
+
+  const result = await openFolder(last, { quiet: true });
+  if (!result?.ok) {
+    try {
+      localStorage.removeItem("orden:lastFolder");
+    } catch {
+      // nada que limpiar
+    }
+  }
+}
+
+render();
+void bootstrap()
+  .catch((error) => console.log("BOOTSTRAP_ERROR", error?.message ?? String(error)))
+  .finally(() => {
+    window.__ordenReady = true;
+  });
+
+if (params.has("smoke")) {
   window.__ordenSmoke = {
     open: (root) => openFolder(root),
     state: () => ({

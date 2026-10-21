@@ -24,17 +24,18 @@ npm rebuild electron
 
 ```powershell
 npm run desktop
+npm run desktop -- --folder="C:\Users\tu\Downloads"   # abre esa carpeta al arrancar
 ```
 
 Flujo:
 
-1. **Elegir carpeta…** (o la que tengas abierta).
+1. **Elegir carpeta…** (o arráncala con `--folder`).
 2. Revisa el plan agrupado por regla: origen → destino y tamaño.
 3. Desmarca lo que quieras conservar.
 4. **Aplicar N** → confirmación → mueve y guarda el diario.
 5. **Deshacer** → restaura la última acción completa.
 
-La ventana es Electron (sin compiladores). La UI es HTML/CSS/JS plano; el proceso principal reutiliza el mismo motor que la CLI.
+Recuerda la última carpeta abierta. La ventana es Electron (sin compiladores). La UI es HTML/CSS/JS plano; el proceso principal reutiliza el mismo motor que la CLI.
 
 ## CLI
 
