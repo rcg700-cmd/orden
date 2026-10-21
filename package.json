@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Ordena archivos con plan previo, interfaz de escritorio y undo",
+  "license": "MIT",
   "author": "orden",
   "type": "module",
   "main": "dist/main.js",

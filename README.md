@@ -154,3 +154,7 @@ Abre la carpeta, aplica todo, deshace, y escribe el resultado en el log. Útil p
 - `dupes` solo informa; no borra ni enlaza duplicados.
 - Solo mueve dentro de la carpeta raíz elegida.
 - El instalador no está firmado: Windows SmartScreen puede pedir confirmación la primera vez.
+
+## Licencia
+
+MIT © 2026 rcg700-cmd. Consulta [LICENSE](LICENSE).
